@@ -1,0 +1,4 @@
+.stack-work/
+*~
+.vscode
+webdriver.code-workspace
