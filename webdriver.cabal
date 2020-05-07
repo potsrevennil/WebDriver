@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: aaaaefe08760b8cc875b08f435aa262b27baa98470c473ddc676211972bea944
+-- hash: bc416aab719abd8069bb110a228ce4be721a2da2a1d45bf7bd3c2ae7e547107f
 
 name:           webdriver
 version:        0.1.0.0
@@ -28,6 +28,7 @@ source-repository head
 library
   exposed-modules:
       Capabilities
+      Commands
       Lib
   other-modules:
       Paths_webdriver
@@ -41,6 +42,9 @@ library
     , data-default
     , http-client
     , http-types
+    , lifted-base
+    , text
+    , transformers-base
     , unordered-containers
     , utf8-string
   default-language: Haskell2010
@@ -60,6 +64,9 @@ executable webdriver-exe
     , data-default
     , http-client
     , http-types
+    , lifted-base
+    , text
+    , transformers-base
     , unordered-containers
     , utf8-string
     , webdriver
@@ -81,6 +88,9 @@ test-suite webdriver-test
     , data-default
     , http-client
     , http-types
+    , lifted-base
+    , text
+    , transformers-base
     , unordered-containers
     , utf8-string
     , webdriver

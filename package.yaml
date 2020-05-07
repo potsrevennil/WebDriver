@@ -29,6 +29,9 @@ dependencies:
 - attoparsec
 - utf8-string
 - unordered-containers
+- text
+- lifted-base
+- transformers-base
 library:
   source-dirs: src
 
