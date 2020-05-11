@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bc416aab719abd8069bb110a228ce4be721a2da2a1d45bf7bd3c2ae7e547107f
+-- hash: fa840dff9d6b842915e9a780a1edf339cc08f97ca7bcf072ac67ec84d8e65753
 
 name:           webdriver
 version:        0.1.0.0
@@ -30,6 +30,7 @@ library
       Capabilities
       Commands
       Lib
+      Sessions
   other-modules:
       Paths_webdriver
   hs-source-dirs:
@@ -43,6 +44,7 @@ library
     , http-client
     , http-types
     , lifted-base
+    , newtype
     , text
     , transformers-base
     , unordered-containers
@@ -65,6 +67,7 @@ executable webdriver-exe
     , http-client
     , http-types
     , lifted-base
+    , newtype
     , text
     , transformers-base
     , unordered-containers
@@ -89,6 +92,7 @@ test-suite webdriver-test
     , http-client
     , http-types
     , lifted-base
+    , newtype
     , text
     , transformers-base
     , unordered-containers

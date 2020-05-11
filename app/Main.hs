@@ -1,18 +1,18 @@
-{-# LANGUAGE OverloadedStrings, PartialTypeSignatures, RecordWildCards, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, PartialTypeSignatures, FlexibleContexts #-}
 module Main where
 
 import Network.HTTP.Client
-import qualified Data.ByteString.UTF8 as BSU
 import Commands
+import Sessions
 
 main :: IO ()
 main = do 
     res <- newSession
-    ResponseMes {..} <- parseByteString (responseBody res)
-    case sessionId of
-        Just id -> do
-            res' <- delSession (BSU.fromString id)
+    mResId <- getSessionId res
+    case mResId of
+        Just i -> do
+            res' <- delSession i
             print res'
-        Nothing -> print "Failed to get sessionId"
+        Nothing -> print "Delete Session Failed."
 
 

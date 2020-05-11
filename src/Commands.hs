@@ -1,5 +1,12 @@
-{-# LANGUAGE OverloadedStrings, PartialTypeSignatures, DeriveGeneric, FlexibleContexts #-}
-module Commands where
+{-# LANGUAGE OverloadedStrings, PartialTypeSignatures, DeriveGeneric, FlexibleContexts, RecordWildCards #-}
+module Commands (
+    getSessionId,
+    parseByteString,
+    mkRequest,
+    newSession,
+    delSession,
+    getStatus
+)where
 
 import Network.HTTP.Client
 import Network.HTTP.Types
@@ -9,16 +16,17 @@ import Data.Aeson.Types
 import Data.Attoparsec.ByteString.Lazy (Result(..))
 import qualified Data.Attoparsec.ByteString.Lazy as AP
 import qualified Data.ByteString.Lazy as LB
-import qualified Data.ByteString.UTF8 as BSU
 import Data.ByteString (ByteString, append)
 import Data.Typeable
+import Data.Text.Encoding (encodeUtf8)
 import Control.Monad.Base
 import Control.Exception.Lifted
 import GHC.Generics
 import Capabilities
+import Sessions
 
 data ResponseMes = ResponseMes {
-        sessionId :: Maybe String,
+        sessionId :: Maybe SessionId,
         status :: Int,
         value :: Value
     } deriving (Eq, Show, Generic)
@@ -26,6 +34,12 @@ data ResponseMes = ResponseMes {
 instance FromJSON ResponseMes where
     parseJSON = genericParseJSON defaultOptions
         {omitNothingFields = True }
+
+getSessionId :: Response LB.ByteString -> IO (Maybe ByteString)
+getSessionId res = do
+    ResponseMes {..} <- parseByteString (responseBody res)
+    return (encodeUtf8 . sessionIdText <$> sessionId)
+        
 
 instance Exception BadJSON
 newtype BadJSON = BadJSON String
@@ -63,11 +77,11 @@ newSession = newManager defaultManagerSettings >>= httpLbs req
                     ["desiredCapabilities" .= defCapabilities]
 
 delSession :: ByteString -> IO (Response LB.ByteString)
-delSession sessionId = do
+delSession resId = do
     manager <- newManager defaultManagerSettings
     httpLbs req manager
-    where req = (mkRequest methodDelete ("session/" `append` sessionId) . RequestBodyLBS) ""
+    where req = (mkRequest methodDelete ("session/" `append` resId) . RequestBodyLBS) ""
 
-getStatus' :: IO (Response LB.ByteString)
-getStatus' = newManager defaultManagerSettings >>= httpLbs req
+getStatus :: IO (Response LB.ByteString)
+getStatus = newManager defaultManagerSettings >>= httpLbs req
     where req = (mkRequest methodGet "status" . RequestBodyLBS) ""
