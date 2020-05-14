@@ -21,6 +21,8 @@ import Data.Typeable
 import Data.Text.Encoding (encodeUtf8)
 import Control.Monad.Base
 import Control.Exception.Lifted
+import Control.Monad.IO.Class
+import Control.Monad.Trans.State.Lazy
 import GHC.Generics
 import Capabilities
 import Sessions
@@ -35,7 +37,7 @@ instance FromJSON ResponseMes where
     parseJSON = genericParseJSON defaultOptions
         {omitNothingFields = True }
 
-getSessionId :: Response LB.ByteString -> IO (Maybe ByteString)
+getSessionId :: (MonadBase IO m) => Response LB.ByteString -> m (Maybe ByteString)
 getSessionId res = do
     ResponseMes {..} <- parseByteString (responseBody res)
     return (encodeUtf8 . sessionIdText <$> sessionId)
@@ -71,16 +73,25 @@ mkRequest meth path args = defaultRequest {
         requestBody = args
     }
 
-newSession :: IO (Response LB.ByteString)
-newSession = newManager defaultManagerSettings >>= httpLbs req
+newSession :: SessState (Response LB.ByteString)
+newSession = do
+    s@Session {..} <- SessState get
+    res <- liftBase (httpLbs req sessManager)
+    si <- getSessionId res
+    SessState (put (s {sessId = si}))
+    return res
     where req = (mkRequest methodPost "session" . RequestBodyLBS . encode . toJSON . object) 
                     ["desiredCapabilities" .= defCapabilities]
 
-delSession :: ByteString -> IO (Response LB.ByteString)
-delSession resId = do
-    manager <- newManager defaultManagerSettings
-    httpLbs req manager
-    where req = (mkRequest methodDelete ("session/" `append` resId) . RequestBodyLBS) ""
+
+delSession :: SessState (Response LB.ByteString)
+delSession = do
+    Session { .. } <- SessState get
+    liftBase (httpLbs (req sessId) sessManager)
+        where 
+            req :: Maybe ByteString -> Request
+            req (Just i) = (mkRequest methodDelete ("session/" `append` i) . RequestBodyLBS) ""
+            req Nothing = (mkRequest methodDelete "session/" . RequestBodyLBS) ""
 
 getStatus :: IO (Response LB.ByteString)
 getStatus = newManager defaultManagerSettings >>= httpLbs req

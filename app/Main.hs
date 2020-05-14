@@ -2,17 +2,16 @@
 module Main where
 
 import Network.HTTP.Client
+import Control.Monad.Trans.State.Lazy
 import Commands
 import Sessions
 
 main :: IO ()
 main = do 
-    res <- newSession
-    mResId <- getSessionId res
-    case mResId of
-        Just i -> do
-            res' <- delSession i
-            print res'
-        Nothing -> print "Delete Session Failed."
+    manager <- newManager defaultManagerSettings 
+    res <- evalStateT (getSessState (newSession' >> delSession'))
+        (Session {sessHost = "127.0.0.1", sessPort = 4444, sessId = Nothing, sessManager = manager})
+    print res
+
 
 

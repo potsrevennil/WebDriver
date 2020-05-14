@@ -32,6 +32,7 @@ dependencies:
 - text
 - lifted-base
 - transformers-base
+- transformers
 - newtype
 library:
   source-dirs: src

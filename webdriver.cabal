@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: fa840dff9d6b842915e9a780a1edf339cc08f97ca7bcf072ac67ec84d8e65753
+-- hash: c716ca627962af31f7f8b112d1fb3e2e0a91f9710104f0b15075474212d27e44
 
 name:           webdriver
 version:        0.1.0.0
@@ -46,6 +46,7 @@ library
     , lifted-base
     , newtype
     , text
+    , transformers
     , transformers-base
     , unordered-containers
     , utf8-string
@@ -69,6 +70,7 @@ executable webdriver-exe
     , lifted-base
     , newtype
     , text
+    , transformers
     , transformers-base
     , unordered-containers
     , utf8-string
@@ -94,6 +96,7 @@ test-suite webdriver-test
     , lifted-base
     , newtype
     , text
+    , transformers
     , transformers-base
     , unordered-containers
     , utf8-string
