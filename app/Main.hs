@@ -9,7 +9,7 @@ import Sessions
 main :: IO ()
 main = do 
     manager <- newManager defaultManagerSettings 
-    res <- evalStateT (getSessState (newSession' >> delSession'))
+    res <- evalStateT (getSessState (newSession >> navigateTo "http://google.com.tw" >> delSession))
         (Session {sessHost = "127.0.0.1", sessPort = 4444, sessId = Nothing, sessManager = manager})
     print res
 

@@ -5,6 +5,7 @@ module Commands (
     mkRequest,
     newSession,
     delSession,
+    navigateTo,
     getStatus
 )where
 
@@ -18,6 +19,7 @@ import qualified Data.Attoparsec.ByteString.Lazy as AP
 import qualified Data.ByteString.Lazy as LB
 import Data.ByteString (ByteString, append)
 import Data.Typeable
+import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Control.Monad.Base
 import Control.Exception.Lifted
@@ -86,13 +88,27 @@ newSession = do
 
 delSession :: SessState (Response LB.ByteString)
 delSession = do
-    Session { .. } <- SessState get
+    s@Session { .. } <- SessState get
+    SessState (put (s {sessId = Nothing}))
     liftBase (httpLbs (req sessId) sessManager)
         where 
-            req :: Maybe ByteString -> Request
-            req (Just i) = (mkRequest methodDelete ("session/" `append` i) . RequestBodyLBS) ""
-            req Nothing = (mkRequest methodDelete "session/" . RequestBodyLBS) ""
+            req sid = (mkRequest methodDelete (path sid) . RequestBodyLBS) ""
+                where
+                    path :: Maybe ByteString -> ByteString
+                    path (Just i) = "session/" `append` i
+                    path Nothing = "session/"
 
+navigateTo :: Text -> SessState (Response LB.ByteString)
+navigateTo url = do
+    s@Session { .. } <- SessState get
+    liftBase (httpLbs (req sessId) sessManager)
+    where 
+        req sid = (mkRequest methodPost (path sid) . RequestBodyLBS . encode .toJSON .object) ["url" .= url]
+            where
+                path :: Maybe ByteString -> ByteString
+                path (Just i) = "session/" `append` i `append` "/url"
+                path Nothing = "session/url"
+        
 getStatus :: IO (Response LB.ByteString)
 getStatus = newManager defaultManagerSettings >>= httpLbs req
     where req = (mkRequest methodGet "status" . RequestBodyLBS) ""
