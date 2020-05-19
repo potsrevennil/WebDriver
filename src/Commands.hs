@@ -25,8 +25,8 @@ import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Maybe (fromMaybe)
 import Control.Monad.Base
-import Control.Exception (Exception)
-import Control.Exception.Lifted
+import Control.Exception (Exception, SomeException(..), toException)
+import Control.Exception.Lifted (throwIO)
 
 import Control.Monad.Trans.State.Lazy
 import GHC.Generics
@@ -96,55 +96,54 @@ updateSessionId ResponseMes {..} = do
         (_, Nothing) -> return ()
         (_, Just i) -> SessState (put (s {sessId = (Just . encodeUtf8 . sessionIdText) i}))
 
-parseResBodyStatus :: (Exception e) => ResponseMes -> SessState (Maybe e)
-parseResBodyStatus ResponseMes {status = 0} = return Nothing
-parseResBodyStatus _ = return (Just (error "Error"))
 
-parseResponse :: (FromJSON a, Exception e) => Response LB.ByteString -> SessState (Either e a)
+-- TODO : handle error status
+parseResBodyStatus :: ResponseMes -> SessState (Maybe SomeException)
+parseResBodyStatus ResponseMes {status = 0} = return Nothing
+parseResBodyStatus _ = return Nothing
+
+-- TODO : handle status other than 200
+parseResponse :: Response LB.ByteString -> SessState (Either SomeException ResponseMes)
 parseResponse res 
     | status == 200 = 
         if LB.null body
             then Right <$> (parseAesonResult . fromJSON $ Null)
             else do
-                resMsg@ResponseMes { value } <- parseByteString body
+                resMsg <- parseByteString body
                 parseResBodyStatus resMsg >>= maybe
-                    (updateSessionId resMsg >> Right <$> parseAesonResult (fromJSON value))
-                    (return . Left)
-    | otherwise =  return . Left . error $ "Error"
+                    (updateSessionId resMsg >> return (Right resMsg))
+                    (return . Left . toException)
+    | otherwise =  return . Left . toException . HTTPStatusUnknown status . statusMessage . responseStatus $ res
         where 
             status = statusCode (responseStatus res) 
             body = responseBody res
 
-doCommand :: Method -> ByteString -> LB.ByteString -> SessState (Response LB.ByteString)
-doCommand meth path args = mkRequest meth path args >>= sendRequest
+doCommand :: Method -> ByteString -> LB.ByteString -> SessState ResponseMes
+doCommand meth path args = mkRequest meth path args >>= sendRequest >>= parseResponse >>= either throwIO return
 
-newSession :: SessState (Response LB.ByteString)
+newSession :: SessState Session
 newSession = do
-    res <- doCommand methodPost "session" $ (encode . toJSON . object) ["desiredCapabilities" .= defCapabilities]
-    s@Session {..} <- SessState get
-    si <- getSessionId res
-    SessState (put (s {sessId = si}))
-    return res
+    doCommand methodPost "session" $ (encode . toJSON . object) ["desiredCapabilities" .= defCapabilities] :: SessState ResponseMes
+    SessState get
 
-delSession :: SessState (Response LB.ByteString)
+delSession :: SessState ()
 delSession = do
     Session { .. } <- SessState get
-    doCommand methodDelete ("session/" `append` fromMaybe "" sessId) ""
+    doCommand methodDelete ("session/" `append` fromMaybe "" sessId) "" :: SessState ResponseMes
+    return ()
 
-navigateTo :: Text -> SessState (Response LB.ByteString)
+navigateTo :: Text -> SessState Value
 navigateTo url = do
     Session { .. } <- SessState get
-    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/url") $ (encode .toJSON .object) ["url" .= url]
+    ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/url") $ (encode .toJSON .object) ["url" .= url]
+    return value
 
-getCurrentUrl :: SessState String
+getCurrentUrl :: SessState Text
 getCurrentUrl = do
     Session { .. } <- SessState get
-    res <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/url") ""
-    ResponseMes { .. } <- parseByteString (responseBody res)
-    case fromJSON value of
-        Success val -> return val
-        Error err -> throwIO $ BadJSON err
+    ResponseMes { value } <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/url") ""
+    parseAesonResult (fromJSON value)
 
 getStatus :: SessState (Response LB.ByteString)
-getStatus = doCommand methodGet "status" ""
+getStatus = mkRequest methodGet "status" "" >>= sendRequest
 
