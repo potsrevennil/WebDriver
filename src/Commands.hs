@@ -8,7 +8,12 @@ module Commands (
     delSession,
     navigateTo,
     getCurrentUrl,
-    getStatus
+    getStatus,
+    getWindowHandle,
+    closeWindow,
+    switchToWindow,
+    newWindow,
+    getWindowHandles
 )where
 
 import Network.HTTP.Client
@@ -19,6 +24,7 @@ import Data.Aeson.Types
 import Data.Attoparsec.ByteString.Lazy (Result(..))
 import qualified Data.Attoparsec.ByteString.Lazy as AP
 import qualified Data.ByteString.Lazy as LB
+import qualified Data.HashMap.Lazy as HL (HashMap, lookup)
 import Data.ByteString (ByteString, append)
 import Data.Typeable
 import Data.Text (Text)
@@ -35,7 +41,7 @@ import Sessions
 
 data ResponseMes = ResponseMes {
         sessionId :: Maybe SessionId,
-        status :: Int,
+        status :: Maybe Int,
         value :: Value
     } deriving (Eq, Show, Generic)
 
@@ -75,7 +81,7 @@ mkRequest meth path args = return defaultRequest {
                             (hConnection, "keep-alive"),
                             (hContentType, "text/plain;charset=UTF-8")
                         ],    
-        path = "/wd/hub/" `append` path,
+        path = path,
         method = meth,
         requestBody = RequestBodyLBS args
     }
@@ -84,7 +90,7 @@ sendRequest :: Request -> SessState (Response LB.ByteString)
 sendRequest req = do
     s@Session {..} <- SessState get
     liftBase (httpLbs req sessManager)
-    
+
 
 data HTTPStatusUnknown = HTTPStatusUnknown Int ByteString deriving (Eq, Show, Typeable)
 instance Exception HTTPStatusUnknown
@@ -99,7 +105,7 @@ updateSessionId ResponseMes {..} = do
 
 -- TODO : handle error status
 parseResBodyStatus :: ResponseMes -> SessState (Maybe SomeException)
-parseResBodyStatus ResponseMes {status = 0} = return Nothing
+parseResBodyStatus ResponseMes {status = Just 0} = return Nothing
 parseResBodyStatus _ = return Nothing
 
 -- TODO : handle status other than 200
@@ -132,11 +138,11 @@ delSession = do
     doCommand methodDelete ("session/" `append` fromMaybe "" sessId) "" :: SessState ResponseMes
     return ()
 
-navigateTo :: Text -> SessState Value
+navigateTo :: Text -> SessState ()
 navigateTo url = do
     Session { .. } <- SessState get
     ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/url") $ (encode .toJSON .object) ["url" .= url]
-    return value
+    return ()
 
 getCurrentUrl :: SessState Text
 getCurrentUrl = do
@@ -144,6 +150,37 @@ getCurrentUrl = do
     ResponseMes { value } <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/url") ""
     parseAesonResult (fromJSON value)
 
-getStatus :: SessState (Response LB.ByteString)
-getStatus = mkRequest methodGet "status" "" >>= sendRequest
+getStatus :: SessState Value
+getStatus = do
+    ResponseMes { value } <- doCommand methodGet "status" ""
+    return value 
 
+getWindowHandle :: SessState Text
+getWindowHandle = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/window") ""
+    parseAesonResult (fromJSON value)
+
+closeWindow :: SessState ()
+closeWindow = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodDelete ("session/" `append` fromMaybe "" sessId `append` "/window") ""
+    return ()
+
+switchToWindow :: Text -> SessState ()
+switchToWindow handle = do
+    Session { .. } <- SessState get
+    _ <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window") $ (encode .toJSON .object) ["handle" .= handle]
+    return ()
+
+newWindow :: Text -> SessState (HL.HashMap Text Value)
+newWindow t = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/new") $ (encode .toJSON .object) ["type" .= t]
+    parseAesonResult (fromJSON value)
+
+getWindowHandles :: SessState [Text]
+getWindowHandles = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/window_handles") ""
+    parseAesonResult (fromJSON value)
