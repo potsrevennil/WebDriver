@@ -8,7 +8,15 @@ import Sessions
 main :: IO ()
 main = do 
     manager <- newManager defaultManagerSettings 
-    res <- evalStateT (getSessState (newSession >> newWindow "window" >> getWindowHandles >>= \x -> switchToWindow (x !! 1) >> closeWindow ))
+    res <- evalStateT (getSessState (
+                newSession >> 
+                navigateTo "http://google.com.tw" >> 
+                navigateTo "https://www.wikipedia.org/" >>
+                back >>
+                forward >>
+                refresh >>
+                getTitle
+            ))
         (Session {sessHost = "127.0.0.1", sessPort = 4444, sessId = Nothing, sessManager = manager})
     print res
 

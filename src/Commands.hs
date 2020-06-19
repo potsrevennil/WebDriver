@@ -8,17 +8,28 @@ module Commands (
     delSession,
     navigateTo,
     getCurrentUrl,
+    back,
+    forward,
+    refresh,
+    getTitle,
     getStatus,
     getWindowHandle,
     closeWindow,
     switchToWindow,
+    getWindowHandles,
     newWindow,
-    getWindowHandles
+    switchToParentFrame,
+    getWindowSize,
+    setWindowSize,
+    maximizeWindow,
+    minimizeWindow,
+    fullscreenWindow
 )where
 
 import Network.HTTP.Client
 import Network.HTTP.Types
 import Network.HTTP.Types.Header
+import qualified Network.HTTP.Types.URI as HTTP
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Attoparsec.ByteString.Lazy (Result(..))
@@ -28,8 +39,9 @@ import qualified Data.HashMap.Lazy as HL (HashMap, lookup)
 import Data.ByteString (ByteString, append)
 import Data.Typeable
 import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Maybe (fromMaybe)
+import Data.Word
 import Control.Monad.Base
 import Control.Exception (Exception, SomeException(..), toException)
 import Control.Exception.Lifted (throwIO)
@@ -53,7 +65,7 @@ getSessionId :: (MonadBase IO m) => Response LB.ByteString -> m (Maybe ByteStrin
 getSessionId res = do
     ResponseMes {..} <- parseByteString (responseBody res)
     return (encodeUtf8 . sessionIdText <$> sessionId)
-        
+
 
 instance Exception BadJSON
 newtype BadJSON = BadJSON String
@@ -80,7 +92,7 @@ mkRequest meth path args = return defaultRequest {
                             (hAcceptLanguage, "en-US,en;q=0.5"),
                             (hConnection, "keep-alive"),
                             (hContentType, "text/plain;charset=UTF-8")
-                        ],    
+                        ],
         path = path,
         method = meth,
         requestBody = RequestBodyLBS args
@@ -110,8 +122,8 @@ parseResBodyStatus _ = return Nothing
 
 -- TODO : handle status other than 200
 parseResponse :: Response LB.ByteString -> SessState (Either SomeException ResponseMes)
-parseResponse res 
-    | status == 200 = 
+parseResponse res
+    | status == 200 =
         if LB.null body
             then Right <$> (parseAesonResult . fromJSON $ Null)
             else do
@@ -120,8 +132,8 @@ parseResponse res
                     (updateSessionId resMsg >> return (Right resMsg))
                     (return . Left . toException)
     | otherwise =  return . Left . toException . HTTPStatusUnknown status . statusMessage . responseStatus $ res
-        where 
-            status = statusCode (responseStatus res) 
+        where
+            status = statusCode (responseStatus res)
             body = responseBody res
 
 doCommand :: Method -> ByteString -> LB.ByteString -> SessState ResponseMes
@@ -150,10 +162,40 @@ getCurrentUrl = do
     ResponseMes { value } <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/url") ""
     parseAesonResult (fromJSON value)
 
+back :: SessState ()
+back = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/back") ""
+    return ()
+
+forward :: SessState ()
+forward = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/forward") ""
+    return ()
+
+refresh :: SessState ()
+refresh = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/forward") ""
+    return ()
+
+getTitle :: SessState Text
+getTitle = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/title") ""
+    parseAesonResult (fromJSON value)
+
 getStatus :: SessState Value
 getStatus = do
     ResponseMes { value } <- doCommand methodGet "status" ""
-    return value 
+    return value
+
+----------------------------------------------------------------
+--                                                            --
+--                      Window Commands                       --
+--                                                            --
+----------------------------------------------------------------
 
 getWindowHandle :: SessState Text
 getWindowHandle = do
@@ -173,14 +215,63 @@ switchToWindow handle = do
     _ <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window") $ (encode .toJSON .object) ["handle" .= handle]
     return ()
 
-newWindow :: Text -> SessState (HL.HashMap Text Value)
-newWindow t = do
-    Session { .. } <- SessState get
-    ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/new") $ (encode .toJSON .object) ["type" .= t]
-    parseAesonResult (fromJSON value)
 
 getWindowHandles :: SessState [Text]
 getWindowHandles = do
     Session { .. } <- SessState get
     ResponseMes { value } <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/window_handles") ""
     parseAesonResult (fromJSON value)
+
+newWindow :: Text -> SessState (HL.HashMap Text Value)
+newWindow t = do
+    Session { .. } <- SessState get
+    ResponseMes { value } <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/new") $ (encode .toJSON .object) ["type" .= t]
+    parseAesonResult (fromJSON value)
+
+-- TODO :
+-- switchToFrame :: WebFrame -> SessState ()
+-- switchToFrame = do
+
+switchToParentFrame :: SessState ()
+switchToParentFrame = do
+    Session { .. } <- SessState get
+    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/frame/parent") ""
+    return ()
+
+getWindowSize :: Text -> SessState Value
+getWindowSize handle = do
+    Session { .. } <- SessState get
+    ResponseMes {value} <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/size") ""
+
+    case value of
+        Object o ->
+            (\h w -> object ["width" .= w, "height" .= h]) <$>
+                (parseAesonResult $ parse (.: "width") o :: SessState Value) <*>
+                (parseAesonResult $ parse (.: "height") o :: SessState Value)
+        _ -> throwIO $ BadJSON "Cannot parse non-object JSON as a (height, width) pair"
+
+setWindowSize :: Text -> Maybe Word32 -> Maybe Word32 -> Maybe Word -> Maybe Word -> SessState Value
+setWindowSize handle w h x y = do
+    Session { .. } <- SessState get
+    ResponseMes {value} <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/size")
+        $ (encode . toJSON . object) ["width" .= w, "height" .= h, "x" .= x, "y" .= y]
+    return value
+
+maximizeWindow :: Text -> SessState Value
+maximizeWindow handle = do
+    Session { .. } <- SessState get
+    ResponseMes {value} <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/maximize" ) ""
+    return value
+
+
+minimizeWindow :: Text -> SessState Value
+minimizeWindow handle = do
+    Session { .. } <- SessState get
+    ResponseMes {value} <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/minimize" ) ""
+    return value
+
+fullscreenWindow :: Text -> SessState Value
+fullscreenWindow handle = do
+    Session { .. } <- SessState get
+    ResponseMes {value} <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/fullscreen" ) ""
+    return value
