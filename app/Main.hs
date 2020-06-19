@@ -2,7 +2,7 @@
 
 import Network.HTTP.Client
 import Control.Monad.Trans.State.Lazy
-import Commands
+import Commands.Commands
 import Sessions
 
 main :: IO ()

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c088f8551558b50fc56ddad32a36c9567b9f40310480ac6eb5b9f97833fb9bd2
+-- hash: 163a2e73dab6b19ec5e99ca8cabf1430a6cff7fc134699fcfad5bd24d5ee0c5f
 
 name:           webdriver
 version:        0.1.0.0
@@ -28,7 +28,8 @@ source-repository head
 library
   exposed-modules:
       Capabilities
-      Commands
+      Commands.Commands
+      Commands.Internal
       Lib
       Sessions
   other-modules:
