@@ -35,6 +35,8 @@ dependencies:
 - transformers
 - newtype
 - vector
+- lens
+- lens-aeson
 library:
   source-dirs: src
 

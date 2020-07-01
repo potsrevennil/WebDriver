@@ -18,6 +18,7 @@ import qualified Data.ByteString.Lazy as LB
 
 import Control.Monad.Trans.State.Lazy
 import Control.Monad.Base
+import Control.Monad (void)
 import Control.Exception.Lifted (throwIO)
 import Control.Exception (Exception, SomeException(..), toException)
 import GHC.Generics
@@ -25,22 +26,9 @@ import GHC.Generics
 import Sessions
 import Data.LocationStrategy
 
-data ResponseMes = ResponseMes {
-        sessionId :: Maybe SessionId,
-        status :: Maybe Int,
-        value :: Value
-    } deriving (Eq, Show, Generic)
-
-instance FromJSON ResponseMes where
-    parseJSON = genericParseJSON defaultOptions
-        {omitNothingFields = True }
-    
-
--- getSessionId :: (MonadBase IO m) => Response LB.ByteString -> m (Maybe ByteString)
--- getSessionId res = do
---     ResponseMes {..} <- parseByteString (responseBody res)
---     return (encodeUtf8 . sessionIdText <$> sessionId)
-
+import Data.Aeson.Text
+import Control.Lens hiding ((.=))
+import Data.Aeson.Lens
 
 instance Exception BadJSON
 newtype BadJSON = BadJSON String
@@ -56,8 +44,8 @@ parseByteString s = case AP.parse json s of
                 Fail _ _ err   -> throwIO $ BadJSON err
 
 
-mkRequest :: (ToJSON a) => Method -> ByteString -> a -> SessState Request
-mkRequest meth path args = 
+mkRequest :: (ToJSON a) => ByteString -> Method -> a -> SessState Request
+mkRequest path meth args = 
     let body = case toJSON args of 
                 Null -> ""
                 val  -> encode val in
@@ -86,35 +74,44 @@ sendRequest req = do
 data HTTPStatusUnknown = HTTPStatusUnknown Int ByteString deriving (Eq, Show, Typeable)
 instance Exception HTTPStatusUnknown
 
-updateSessionId :: ResponseMes -> SessState ()
-updateSessionId ResponseMes {..} = do
-    s@Session {..} <- SessState get
-    case (sessId , sessionId) of
-        (_, Nothing) -> return ()
-        (_, Just i) -> SessState (put (s {sessId = (Just . encodeUtf8 . sessionIdText) i}))
+updateSessionId :: Maybe Text -> SessState ()
+updateSessionId Nothing = return ()
+updateSessionId (Just sid) = do
+    s <- SessState get
+    SessState (put (s {sessId = SessionId sid}))
 
-
--- TODO : handle error status
-parseResBodyStatus :: ResponseMes -> SessState (Maybe SomeException)
-parseResBodyStatus ResponseMes {status = Just 0} = return Nothing
-parseResBodyStatus _ = return Nothing
+-- -- TODO : handle error status
+-- parseResBodyStatus :: ResponseMes -> SessState (Maybe SomeException)
+-- parseResBodyStatus ResponseMes {status = Just 0} = return Nothing
+-- parseResBodyStatus _ = return Nothing
 
 -- TODO : handle status other than 200
-parseResponse :: Response LB.ByteString -> SessState (Either SomeException Value)
+parseResponse :: (FromJSON a) => Response LB.ByteString -> SessState (Either SomeException a)
 parseResponse res
-    | status == 200 =
-        if LB.null body
-            then Right <$> (parseAesonResult . fromJSON $ Null)
-            else do
-                resMsg@ResponseMes{value} <- parseByteString body
-                parseResBodyStatus resMsg >>= maybe
-                    (updateSessionId resMsg >> return (Right value))
-                    (return . Left . toException)
+    | status == 200 = 
+        case body ^? key "value" of
+            Nothing -> Right <$> (parseAesonResult . fromJSON $ Null)
+            Just val -> do
+                updateSessionId (body ^? key "sessionId" . _String) 
+                Right <$> (parseAesonResult . fromJSON $ val)
     | otherwise =  return . Left . toException . HTTPStatusUnknown status . statusMessage . responseStatus $ res
         where
             status = statusCode (responseStatus res)
             body = responseBody res
 
+doCommand :: (ToJSON a, FromJSON b) => ByteString -> Method -> a -> SessState b
+doCommand path meth args = mkRequest path meth args >>= sendRequest >>= parseResponse >>= either throwIO return
 
-doCommand :: (ToJSON a) => Method -> ByteString -> a -> SessState Value
-doCommand meth path args = mkRequest meth path args >>= sendRequest >>= parseResponse >>= either throwIO return
+doSessCommand :: (ToJSON a, FromJSON b) => ByteString -> Method -> a -> SessState b
+doSessCommand path meth args = do 
+    Session {sessId} <- SessState get
+    doCommand ("session/" `append` encodeUtf8 (getSessionId sessId) `append` path) meth args
+
+doSessWinCommand :: (ToJSON a, FromJSON b) => ByteString -> Method -> a -> SessState b
+doSessWinCommand path = doSessCommand ("/window/" `append` path)
+
+ignore :: SessState Value -> SessState ()
+ignore = void
+
+retValue :: SessState Value -> SessState Value
+retValue = id

@@ -1,8 +1,5 @@
 {-# LANGUAGE OverloadedStrings, PartialTypeSignatures, FlexibleContexts, NamedFieldPuns, RecordWildCards #-}
 module Commands.Commands (
-    parseByteString,
-    mkRequest,
-    sendRequest,
     newSession,
     delSession,
     navigateTo,
@@ -38,19 +35,20 @@ import qualified Data.HashMap.Lazy as HL (HashMap, lookup)
 import Data.ByteString (ByteString, append)
 
 import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8, decodeUtf8)
-import Data.Maybe (fromMaybe)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Aeson.Types
 import Data.Aeson
 import Data.Word
 import Control.Exception.Lifted (throwIO)
 import Control.Monad.Trans.State.Lazy
-import Control.Monad (void)
 
 import Capabilities
 import Sessions
 import Commands.Internal
 import Data.LocationStrategy
+
+import Control.Lens hiding ((.=))
+import Data.Aeson.Lens
 
 ----------------------------------------------------------------
 --                                                            --
@@ -60,48 +58,38 @@ import Data.LocationStrategy
 
 newSession :: SessState Session
 newSession = do
-    doCommand methodPost "session" $ object ["desiredCapabilities" .= defCapabilities]
+    ignore $ doCommand "session" methodPost $ object ["desiredCapabilities" .= defCapabilities]
     SessState get
 
 delSession :: SessState ()
-delSession = do
-    Session { .. } <- SessState get
-    void $ doCommand methodDelete ("session/" `append` fromMaybe "" sessId) Null
+delSession = ignore $ doSessCommand "" methodDelete Null
 
 navigateTo :: Text -> SessState ()
-navigateTo url = do
-    Session { .. } <- SessState get
-    void $ doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/url") $ object ["url" .= url]
+navigateTo url = ignore $ doSessCommand "/url" methodPost $ object ["url" .= url]
 
 getCurrentUrl :: SessState Text
-getCurrentUrl = do
-    Session { .. } <- SessState get
-    v <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/url") Null
-    parseAesonResult (fromJSON v)
+getCurrentUrl = doSessCommand "/url" methodGet Null
 
 back :: SessState ()
-back = do
-    Session { .. } <- SessState get
-    void $ doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/back") Null
+back = ignore $ doSessCommand "/back" methodPost Null
 
 forward :: SessState ()
-forward = do
-    Session { .. } <- SessState get
-    void $ doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/forward") Null
+forward = ignore $ doSessCommand "/forward" methodPost Null
 
 refresh :: SessState ()
-refresh = do
-    Session { .. } <- SessState get
-    void $ doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/forward") Null
-
+refresh = ignore $ doSessCommand "/forward" methodPost Null
+    
 getTitle :: SessState Text
-getTitle = do
-    Session { .. } <- SessState get
-    v <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/title") Null
-    parseAesonResult (fromJSON v)
-
+getTitle = doSessCommand "/title" methodGet Null
+    
 getStatus :: SessState Value
-getStatus = doCommand methodGet "status" Null
+getStatus = do
+    res <- retValue $ doCommand "status" methodGet Null
+    case (\r m -> object ["ready" .= r, "message" .= m]) <$>
+            (res ^? key "ready" . _Bool) <*> 
+            (res ^? key "message" . _String) of
+        Just d -> return d
+        Nothing -> throwIO $ BadJSON "Cannot parse result of getStatus command into (ready, message) pair."
 
 ----------------------------------------------------------------
 --                                                            --
@@ -110,77 +98,57 @@ getStatus = doCommand methodGet "status" Null
 ----------------------------------------------------------------
 
 getWindowHandle :: SessState Text
-getWindowHandle = do
-    Session { .. } <- SessState get
-    v <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/window") Null
-    parseAesonResult (fromJSON v)
+getWindowHandle = doSessWinCommand "" methodGet Null   
 
 closeWindow :: SessState ()
-closeWindow = do
-    Session { .. } <- SessState get
-    void $ doCommand methodDelete ("session/" `append` fromMaybe "" sessId `append` "/window") Null
+closeWindow = ignore $ doSessWinCommand "" methodDelete Null
 
 switchToWindow :: Text -> SessState ()
-switchToWindow handle = do
-    Session { .. } <- SessState get
-    void $ doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window") $ object ["handle" .= handle]
+switchToWindow handle = ignore $ doSessWinCommand "" methodPost $ object ["handle" .= handle]
 
 
 getWindowHandles :: SessState [Text]
-getWindowHandles = do
-    Session { .. } <- SessState get
-    v <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/window_handles") Null
-    parseAesonResult (fromJSON v)
-
-newWindow :: Text -> SessState (HL.HashMap Text Value)
+getWindowHandles = doSessCommand "/window_handles" methodGet Null
+    
+newWindow :: Text -> SessState Value
 newWindow t = do
-    Session { .. } <- SessState get
-    v <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/new") $ object ["type" .= t]
-    parseAesonResult (fromJSON v)
-
+    res <- retValue $ doSessWinCommand "new" methodPost $ object ["type" .= t]
+    case (\h t -> object ["handle" .= h, "type" .= t]) <$>
+        (res ^? key "handle" . _String) <*>
+        (res ^? key "type" . _String) of
+            Just d -> return d
+            Nothing -> throwIO $ BadJSON "Cannot parse result of newWindow command into (handle, type) pair."
 -- TODO :
 -- switchToFrame :: WebFrame -> SessState ()
 -- switchToFrame = do
 
 switchToParentFrame :: SessState ()
-switchToParentFrame = do
-    Session { .. } <- SessState get
-    void $ doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/frame/parent") Null
+switchToParentFrame = ignore $ doSessCommand "/frame/parent" methodPost Null
 
 getWindowSize :: Text -> SessState Value
 getWindowSize handle = do
-    Session { .. } <- SessState get
-    v <- doCommand methodGet ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/size") Null
+    res <- retValue $ doSessWinCommand (encodeUtf8 handle `append` "/size") methodGet Null
 
-    case v of
-        Object o ->
-            (\h w x y -> object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]) <$>
-                (parseAesonResult $ parse (.: "width") o :: SessState Value) <*>
-                (parseAesonResult $ parse (.: "height") o :: SessState Value) <*>
-                (parseAesonResult $ parse (.: "x") o :: SessState Value) <*>
-                (parseAesonResult $ parse (.: "y") o :: SessState Value) 
-        _ -> throwIO $ BadJSON "Cannot parse non-object JSON as a (height, width) pair"
+    case (\w h x y -> object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]) <$>
+            (res ^? key "width" . _Number) <*> 
+            (res ^? key "height" . _Number) <*>
+            (res ^? key "x" . _Number) <*>
+            (res ^? key "y" . _Number) of
+        Just d -> return d
+        Nothing -> throwIO $ BadJSON "Cannot parse result of getWindowSize command into (height, width, x, y) tuple."
         
 setWindowSize :: Text -> Maybe Word32 -> Maybe Word32 -> Maybe Word -> Maybe Word -> SessState Value
-setWindowSize handle w h x y = do
-    Session { .. } <- SessState get
-    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/size")
-        $ object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]
+setWindowSize handle w h x y = doSessWinCommand (encodeUtf8 handle `append` "/size") methodPost 
+                                    $ object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]
 
 maximizeWindow :: Text -> SessState Value
-maximizeWindow handle = do
-    Session { .. } <- SessState get
-    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/maximize" ) Null
+maximizeWindow handle = doSessWinCommand (encodeUtf8 handle `append` "/maximize" ) methodPost Null
 
 minimizeWindow :: Text -> SessState Value
-minimizeWindow handle = do
-    Session { .. } <- SessState get
-    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/" `append` encodeUtf8 handle `append` "/minimize" ) Null
+minimizeWindow handle = doSessWinCommand (encodeUtf8 handle `append` "/minimize" ) methodPost Null
     
 fullscreenWindow :: Text -> SessState Value
-fullscreenWindow handle = do
-    Session { .. } <- SessState get
-    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/window/fullscreen" ) Null
+fullscreenWindow handle = doSessWinCommand "fullscreen" methodPost Null
     
 ----------------------------------------------------------------
 --                                                            --
@@ -190,25 +158,15 @@ fullscreenWindow handle = do
 
 
 findElement :: LocationStrategy -> SessState Value
-findElement ls = do
-    Session { .. } <- SessState get
-    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/element" ) ls
+findElement = doSessCommand "/element" methodPost
 
 
 findElements :: LocationStrategy -> SessState [Value]
-findElements ls = do
-    Session { .. } <- SessState get
-    v <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/elements" ) ls
-    parseAesonResult (fromJSON v)
+findElements = doSessCommand "/elements" methodPost
 
 findChildElement :: Text -> LocationStrategy -> SessState Value
-findChildElement eid ls = do
-    Session { .. } <- SessState get
-    doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/element/" `append` encodeUtf8 eid `append` "/element") ls
+findChildElement eid = doSessCommand ("/element/" `append` encodeUtf8 eid `append` "/element") methodPost
 
 
 findChildElements :: Text -> LocationStrategy -> SessState [Value]
-findChildElements eid ls = do
-    Session { .. } <- SessState get
-    v <- doCommand methodPost ("session/" `append` fromMaybe "" sessId `append` "/element/" `append` encodeUtf8 eid `append` "/elements" ) ls
-    parseAesonResult (fromJSON v)
+findChildElements eid = doSessCommand ("/element/" `append` encodeUtf8 eid `append` "/elements") methodPost

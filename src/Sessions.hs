@@ -10,13 +10,13 @@ import Control.Monad.IO.Class
 import Control.Monad.Base
 
 
-newtype SessionId = SessionId {sessionIdText :: Text}
+newtype SessionId = SessionId {getSessionId :: Text}
                   deriving (Eq, Ord, Show, Read, FromJSON, ToJSON)
 
 data Session = Session {
         sessHost :: ByteString,
         sessPort :: Int,
-        sessId :: Maybe ByteString,
+        sessId :: SessionId,
         sessManager :: Manager
     } 
 

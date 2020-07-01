@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: a9880143644cbe9b5d215a36b466d23dc8d994cf20648d1f86815f0efcffd8f9
+-- hash: 49e754454cc624c4373afed02659e1fe380caa498eb7648160141b1ba2044e3b
 
 name:           webdriver
 version:        0.1.0.0
@@ -45,6 +45,8 @@ library
     , data-default
     , http-client
     , http-types
+    , lens
+    , lens-aeson
     , lifted-base
     , newtype
     , text
@@ -70,6 +72,8 @@ executable webdriver-exe
     , data-default
     , http-client
     , http-types
+    , lens
+    , lens-aeson
     , lifted-base
     , newtype
     , text
@@ -97,6 +101,8 @@ test-suite webdriver-test
     , data-default
     , http-client
     , http-types
+    , lens
+    , lens-aeson
     , lifted-base
     , newtype
     , text
