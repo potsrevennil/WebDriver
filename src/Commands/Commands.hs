@@ -23,7 +23,21 @@ module Commands.Commands (
     findElement,
     findElements,
     findChildElement,
-    findChildElements
+    findChildrenElement,
+    getActiveElement,
+    isElementSelected,
+    getElementAttr,
+    getElementProperty,
+    getElementCssValue,
+    getElementText,
+    getElementTagName,
+    getElementRect,
+    isElementEnabled,
+    getComputedRole,
+    getComputedLabel,
+    elementClick,
+    elementClear,
+    elementSendKeys
 )where
 
 
@@ -31,7 +45,7 @@ import qualified Network.HTTP.Types.URI as HTTP
 import Network.HTTP.Types.Method
 
 
-import qualified Data.HashMap.Lazy as HL (HashMap, lookup)
+import qualified Data.HashMap.Lazy as HL (HashMap, lookup, elems, keys)
 import Data.ByteString (ByteString, append)
 
 import Data.Text (Text)
@@ -39,6 +53,7 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Aeson.Types
 import Data.Aeson
 import Data.Word
+import Data.Traversable
 import Control.Exception.Lifted (throwIO)
 import Control.Monad.Trans.State.Lazy
 
@@ -78,15 +93,15 @@ forward = ignore $ doSessCommand "/forward" methodPost Null
 
 refresh :: SessState ()
 refresh = ignore $ doSessCommand "/forward" methodPost Null
-    
+
 getTitle :: SessState Text
 getTitle = doSessCommand "/title" methodGet Null
-    
+
 getStatus :: SessState Value
 getStatus = do
     res <- retValue $ doCommand "status" methodGet Null
     case (\r m -> object ["ready" .= r, "message" .= m]) <$>
-            (res ^? key "ready" . _Bool) <*> 
+            (res ^? key "ready" . _Bool) <*>
             (res ^? key "message" . _String) of
         Just d -> return d
         Nothing -> throwIO $ BadJSON "Cannot parse result of getStatus command into (ready, message) pair."
@@ -98,7 +113,7 @@ getStatus = do
 ----------------------------------------------------------------
 
 getWindowHandle :: SessState Text
-getWindowHandle = doSessWinCommand "" methodGet Null   
+getWindowHandle = doSessWinCommand "" methodGet Null
 
 closeWindow :: SessState ()
 closeWindow = ignore $ doSessWinCommand "" methodDelete Null
@@ -109,7 +124,7 @@ switchToWindow handle = ignore $ doSessWinCommand "" methodPost $ object ["handl
 
 getWindowHandles :: SessState [Text]
 getWindowHandles = doSessCommand "/window_handles" methodGet Null
-    
+
 newWindow :: Text -> SessState Value
 newWindow t = do
     res <- retValue $ doSessWinCommand "new" methodPost $ object ["type" .= t]
@@ -130,15 +145,15 @@ getWindowSize handle = do
     res <- retValue $ doSessWinCommand (encodeUtf8 handle `append` "/size") methodGet Null
 
     case (\w h x y -> object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]) <$>
-            (res ^? key "width" . _Number) <*> 
+            (res ^? key "width" . _Number) <*>
             (res ^? key "height" . _Number) <*>
             (res ^? key "x" . _Number) <*>
             (res ^? key "y" . _Number) of
         Just d -> return d
         Nothing -> throwIO $ BadJSON "Cannot parse result of getWindowSize command into (height, width, x, y) tuple."
-        
+
 setWindowSize :: Text -> Maybe Word32 -> Maybe Word32 -> Maybe Word -> Maybe Word -> SessState Value
-setWindowSize handle w h x y = doSessWinCommand (encodeUtf8 handle `append` "/size") methodPost 
+setWindowSize handle w h x y = doSessWinCommand (encodeUtf8 handle `append` "/size") methodPost
                                     $ object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]
 
 maximizeWindow :: Text -> SessState Value
@@ -146,10 +161,10 @@ maximizeWindow handle = doSessWinCommand (encodeUtf8 handle `append` "/maximize"
 
 minimizeWindow :: Text -> SessState Value
 minimizeWindow handle = doSessWinCommand (encodeUtf8 handle `append` "/minimize" ) methodPost Null
-    
+
 fullscreenWindow :: Text -> SessState Value
 fullscreenWindow handle = doSessWinCommand "fullscreen" methodPost Null
-    
+
 ----------------------------------------------------------------
 --                                                            --
 --                      Element Commands                      --
@@ -157,16 +172,86 @@ fullscreenWindow handle = doSessWinCommand "fullscreen" methodPost Null
 ----------------------------------------------------------------
 
 
-findElement :: LocationStrategy -> SessState Value
-findElement = doSessCommand "/element" methodPost
+findElement :: LocationStrategy -> SessState Text
+findElement ls = do
+    res <- retValue $ doSessCommand "/element" methodPost ls
+    case preview _Object res of
+        Just d -> (parseAesonResult . fromJSON) $ head (HL.elems d)
+        Nothing -> throwIO $ BadJSON "Cannot find the element."
+
+findElements :: LocationStrategy -> SessState [Text]
+findElements ls = do
+    res <- retValue $ doSessCommand "/elements" methodPost ls
+    case preview _Object res of
+        Just d -> mapM (parseAesonResult . fromJSON) (HL.elems d)
+        Nothing -> throwIO $ BadJSON "Cannot find the elements."
+
+findChildElement :: Text -> LocationStrategy -> SessState Text
+findChildElement eid ls = do
+    res <- retValue $ doSessElCommand eid "/element" methodPost ls
+    case preview _Object res of
+        Just d -> parseAesonResult . fromJSON . head . HL.elems $ d
+        Nothing -> throwIO $ BadJSON "Cannot find child of the element."
 
 
-findElements :: LocationStrategy -> SessState [Value]
-findElements = doSessCommand "/elements" methodPost
+findChildrenElement :: Text -> LocationStrategy -> SessState [Text]
+findChildrenElement eid ls = do 
+    res <- retValue $ doSessElCommand eid "/elements" methodPost ls
+    case preview _Object res of
+        Just d -> mapM (parseAesonResult  . fromJSON) (HL.elems d)
+        Nothing -> throwIO $ BadJSON "Cannot find children of the element."
 
-findChildElement :: Text -> LocationStrategy -> SessState Value
-findChildElement eid = doSessCommand ("/element/" `append` encodeUtf8 eid `append` "/element") methodPost
+getActiveElement :: SessState Text
+getActiveElement = doSessCommand "/element/active" methodGet Null
 
+isElementSelected :: Text -> SessState Bool
+isElementSelected eid = 
+    doSessElCommand eid "/selected" methodGet Null
 
-findChildElements :: Text -> LocationStrategy -> SessState [Value]
-findChildElements eid = doSessCommand ("/element/" `append` encodeUtf8 eid `append` "/elements") methodPost
+getElementAttr :: Text -> Text -> SessState Value
+getElementAttr eid name = 
+    doSessElCommand eid ("/attribute/" `append` encodeUtf8 name) methodGet $ object ["name" .= name]
+
+getElementProperty ::  Text -> Text -> SessState Value
+getElementProperty eid name =
+    doSessElCommand eid ("/property/" `append` encodeUtf8 name) methodGet $ object ["name" .= name]
+
+getElementCssValue :: Text -> Text -> SessState Value
+getElementCssValue eid cssProp = 
+    doSessElCommand eid ("/css/" `append` encodeUtf8 cssProp) methodGet $ object ["propertyName" .= cssProp]
+
+getElementText :: Text -> SessState Text
+getElementText eid = 
+    doSessElCommand eid "/text" methodGet Null
+
+getElementTagName :: Text -> SessState Text
+getElementTagName eid =
+    doSessElCommand eid "/name" methodGet Null
+
+getElementRect :: Text -> SessState Value
+getElementRect eid =
+    doSessElCommand eid "/rect" methodGet Null
+
+isElementEnabled :: Text -> SessState Bool
+isElementEnabled eid =
+    doSessElCommand eid "/enabled" methodGet Null
+
+getComputedRole :: Text -> SessState Value
+getComputedRole eid =
+    doSessElCommand eid "/computedrole" methodGet Null
+
+getComputedLabel :: Text -> SessState Value
+getComputedLabel eid =
+    doSessElCommand eid "computedlabel" methodGet Null
+
+elementClick :: Text -> SessState ()
+elementClick eid =
+    ignore $ doSessElCommand eid "/click" methodPost Null
+
+elementClear :: Text -> SessState ()
+elementClear eid =
+    ignore $ doSessElCommand eid "/clear" methodPost Null
+
+elementSendKeys :: Text -> Text -> SessState ()
+elementSendKeys eid v =
+    ignore $ doSessElCommand eid "/value" methodPost $ object ["value" .= [v]]

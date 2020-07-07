@@ -110,6 +110,9 @@ doSessCommand path meth args = do
 doSessWinCommand :: (ToJSON a, FromJSON b) => ByteString -> Method -> a -> SessState b
 doSessWinCommand path = doSessCommand ("/window/" `append` path)
 
+doSessElCommand :: (ToJSON a, FromJSON b) => Text -> ByteString -> Method -> a -> SessState b
+doSessElCommand eid path = doSessCommand ("/element/" `append` encodeUtf8 eid `append` path) 
+
 ignore :: SessState Value -> SessState ()
 ignore = void
 
