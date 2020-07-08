@@ -37,7 +37,14 @@ module Commands.Commands (
     getComputedLabel,
     elementClick,
     elementClear,
-    elementSendKeys
+    elementSendKeys,
+
+    elementScreenshot,
+    elementSaveScreenshot,
+
+
+    acceptAlert,
+    getAlert
 )where
 
 
@@ -255,3 +262,27 @@ elementClear eid =
 elementSendKeys :: Text -> Text -> SessState ()
 elementSendKeys eid v =
     ignore $ doSessElCommand eid "/value" methodPost $ object ["value" .= [v]]
+
+
+elementScreenshot :: Text -> SessState Text
+elementScreenshot eid = 
+    doSessElCommand eid "/screenshot" methodGet Null 
+
+elementSaveScreenshot :: FilePath -> Text -> SessState ()
+elementSaveScreenshot path eid = do
+    s <- fmap (decodeLenient . encodeUtf8) . elementScreenshot $ eid
+    liftBase $ Data.ByteString.writeFile path s
+
+acceptAlert :: SessState ()
+acceptAlert = ignore $ doSessCommand "/accept_alert" methodPost Null
+
+getAlert :: SessState Text
+getAlert = doSessCommand "/alert_text" methodGet Null
+
+-- selectOption :: Text -> Text -> SessState ()
+-- selectOption eid v = do
+--     l <- findChildrenElement eid (TagName "option")
+--     o <- filterM findOption l
+--     elementClick . head $ o
+--     where
+--         findOption a = getElementText a >>= (\x -> return (x == v))
