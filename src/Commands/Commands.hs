@@ -1,73 +1,80 @@
 {-# LANGUAGE OverloadedStrings, PartialTypeSignatures, FlexibleContexts, NamedFieldPuns, RecordWildCards #-}
-module Commands.Commands (
-    newSession,
-    delSession,
-    navigateTo,
-    getCurrentUrl,
-    back,
-    forward,
-    refresh,
-    getTitle,
-    getStatus,
-    getWindowHandle,
-    closeWindow,
-    switchToWindow,
-    getWindowHandles,
-    newWindow,
-    switchToParentFrame,
-    getWindowSize,
-    setWindowSize,
-    maximizeWindow,
-    minimizeWindow,
-    fullscreenWindow,
-    findElement,
-    findElements,
-    findChildElement,
-    findChildrenElement,
-    getActiveElement,
-    isElementSelected,
-    getElementAttr,
-    getElementProperty,
-    getElementCssValue,
-    getElementText,
-    getElementTagName,
-    getElementRect,
-    isElementEnabled,
-    getComputedRole,
-    getComputedLabel,
-    elementClick,
-    elementClear,
-    elementSendKeys,
+module Commands.Commands 
+(
+    newSession
+    , delSession
+    , navigateTo
+    , getCurrentUrl
+    , back
+    , forward
+    , refresh
+    , getTitle
+    , getStatus
+    , getWindowHandle
+    , closeWindow
+    , switchToWindow
+    , getWindowHandles
+    , newWindow
+    , switchToParentFrame
+    , getWindowSize
+    , setWindowSize
+    , maximizeWindow
+    , minimizeWindow
+    , fullscreenWindow
+    , findElement
+    , findElements
+    , findChildElement
+    , findChildrenElement
+    , getActiveElement
+    , isElementSelected
+    , getElementAttr
+    , getElementProperty
+    , getElementCssValue
+    , getElementText
+    , getElementTagName
+    , getElementRect
+    , isElementEnabled
+    , getComputedRole
+    , getComputedLabel
+    , elementClick
+    , elementClear
+    , elementSendKeys
 
-    elementScreenshot,
-    elementSaveScreenshot,
+    , elementScreenshot
+    , elementSaveScreenshot
 
 
-    acceptAlert,
-    getAlert
-)where
+    , acceptAlert
+    , getAlert
+)
+where
 
 
 import qualified Network.HTTP.Types.URI as HTTP
 import Network.HTTP.Types.Method
 
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as HL 
+import Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy as B
+import qualified Data.ByteString.Base64.Lazy as B
 
-import qualified Data.HashMap.Lazy as HL (HashMap, lookup, elems, keys)
-import Data.ByteString (ByteString, append)
-
-import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Lazy (Text)
+import qualified Data.Text.Lazy as T
+import qualified Data.Text.Lazy.Encoding as T
 import Data.Aeson.Types
 import Data.Aeson
 import Data.Word
 import Data.Traversable
 import Control.Exception.Lifted (throwIO)
 import Control.Monad.Trans.State.Lazy
+import Control.Monad.Base
 
 import Capabilities
 import Sessions
 import Commands.Internal
 import Data.LocationStrategy
+import Exceptions
 
 import Control.Lens hiding ((.=))
 import Data.Aeson.Lens
@@ -149,7 +156,7 @@ switchToParentFrame = ignore $ doSessCommand "/frame/parent" methodPost Null
 
 getWindowSize :: Text -> SessState Value
 getWindowSize handle = do
-    res <- retValue $ doSessWinCommand (encodeUtf8 handle `append` "/size") methodGet Null
+    res <- retValue $ doSessWinCommand (T.encodeUtf8 handle `B.append` "/size") methodGet Null
 
     case (\w h x y -> object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]) <$>
             (res ^? key "width" . _Number) <*>
@@ -160,14 +167,14 @@ getWindowSize handle = do
         Nothing -> throwIO $ BadJSON "Cannot parse result of getWindowSize command into (height, width, x, y) tuple."
 
 setWindowSize :: Text -> Maybe Word32 -> Maybe Word32 -> Maybe Word -> Maybe Word -> SessState Value
-setWindowSize handle w h x y = doSessWinCommand (encodeUtf8 handle `append` "/size") methodPost
+setWindowSize handle w h x y = doSessWinCommand (T.encodeUtf8 handle `B.append` "/size") methodPost
                                     $ object ["width" .= w, "height" .= h, "x" .= x, "y" .= y]
 
 maximizeWindow :: Text -> SessState Value
-maximizeWindow handle = doSessWinCommand (encodeUtf8 handle `append` "/maximize" ) methodPost Null
+maximizeWindow handle = doSessWinCommand (T.encodeUtf8 handle `B.append` "/maximize" ) methodPost Null
 
 minimizeWindow :: Text -> SessState Value
-minimizeWindow handle = doSessWinCommand (encodeUtf8 handle `append` "/minimize" ) methodPost Null
+minimizeWindow handle = doSessWinCommand (T.encodeUtf8 handle `B.append` "/minimize" ) methodPost Null
 
 fullscreenWindow :: Text -> SessState Value
 fullscreenWindow handle = doSessWinCommand "fullscreen" methodPost Null
@@ -193,16 +200,16 @@ findElements ls = do
         Just d -> mapM (parseAesonResult . fromJSON) (HL.elems d)
         Nothing -> throwIO $ BadJSON "Cannot find the elements."
 
-findChildElement :: Text -> LocationStrategy -> SessState Text
-findChildElement eid ls = do
+findChildElement :: LocationStrategy -> Text -> SessState Text
+findChildElement ls eid = do
     res <- retValue $ doSessElCommand eid "/element" methodPost ls
     case preview _Object res of
         Just d -> parseAesonResult . fromJSON . head . HL.elems $ d
         Nothing -> throwIO $ BadJSON "Cannot find child of the element."
 
 
-findChildrenElement :: Text -> LocationStrategy -> SessState [Text]
-findChildrenElement eid ls = do 
+findChildrenElement :: LocationStrategy -> Text -> SessState [Text]
+findChildrenElement ls eid = do 
     res <- retValue $ doSessElCommand eid "/elements" methodPost ls
     case preview _Object res of
         Just d -> mapM (parseAesonResult  . fromJSON) (HL.elems d)
@@ -216,16 +223,16 @@ isElementSelected eid =
     doSessElCommand eid "/selected" methodGet Null
 
 getElementAttr :: Text -> Text -> SessState Value
-getElementAttr eid name = 
-    doSessElCommand eid ("/attribute/" `append` encodeUtf8 name) methodGet $ object ["name" .= name]
+getElementAttr name eid = 
+    doSessElCommand eid ("/attribute/" `B.append` T.encodeUtf8 name) methodGet $ object ["name" .= name]
 
 getElementProperty ::  Text -> Text -> SessState Value
-getElementProperty eid name =
-    doSessElCommand eid ("/property/" `append` encodeUtf8 name) methodGet $ object ["name" .= name]
+getElementProperty name eid =
+    doSessElCommand eid ("/property/" `B.append` T.encodeUtf8 name) methodGet $ object ["name" .= name]
 
 getElementCssValue :: Text -> Text -> SessState Value
-getElementCssValue eid cssProp = 
-    doSessElCommand eid ("/css/" `append` encodeUtf8 cssProp) methodGet $ object ["propertyName" .= cssProp]
+getElementCssValue cssProp eid = 
+    doSessElCommand eid ("/css/" `B.append` T.encodeUtf8 cssProp) methodGet $ object ["propertyName" .= cssProp]
 
 getElementText :: Text -> SessState Text
 getElementText eid = 
@@ -270,8 +277,8 @@ elementScreenshot eid =
 
 elementSaveScreenshot :: FilePath -> Text -> SessState ()
 elementSaveScreenshot path eid = do
-    s <- fmap (decodeLenient . encodeUtf8) . elementScreenshot $ eid
-    liftBase $ Data.ByteString.writeFile path s
+    s <- fmap (B.decodeLenient . T.encodeUtf8) . elementScreenshot $ eid
+    liftBase $ B.writeFile path s
 
 acceptAlert :: SessState ()
 acceptAlert = ignore $ doSessCommand "/accept_alert" methodPost Null

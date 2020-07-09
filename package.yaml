@@ -37,6 +37,7 @@ dependencies:
 - vector
 - lens
 - lens-aeson
+- base64-bytestring
 library:
   source-dirs: src
 

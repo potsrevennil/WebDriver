@@ -1,9 +1,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Sessions where
 
-import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (ByteString)
 import Data.Aeson
-import Data.Text
+import Data.Text.Lazy
 import Network.HTTP.Client (Manager)
 import Control.Monad.Trans.State.Lazy
 import Control.Monad.IO.Class

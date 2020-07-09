@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 49e754454cc624c4373afed02659e1fe380caa498eb7648160141b1ba2044e3b
+-- hash: eabfd8e236b4eeaf33b1a504ef626c2600466e0bbcc8916a8f2d587843d2cd25
 
 name:           webdriver
 version:        0.1.0.0
@@ -31,6 +31,7 @@ library
       Commands.Commands
       Commands.Internal
       Data.LocationStrategy
+      Exceptions
       Lib
       Sessions
   other-modules:
@@ -41,6 +42,7 @@ library
       aeson
     , attoparsec
     , base >=4.7 && <5
+    , base64-bytestring
     , bytestring
     , data-default
     , http-client
@@ -68,6 +70,7 @@ executable webdriver-exe
       aeson
     , attoparsec
     , base >=4.7 && <5
+    , base64-bytestring
     , bytestring
     , data-default
     , http-client
@@ -97,6 +100,7 @@ test-suite webdriver-test
       aeson
     , attoparsec
     , base >=4.7 && <5
+    , base64-bytestring
     , bytestring
     , data-default
     , http-client
