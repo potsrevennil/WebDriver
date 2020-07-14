@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings, PartialTypeSignatures, FlexibleContexts, NamedFieldPuns, RecordWildCards #-}
 module Commands.Commands 
 (
-    newSession
+    runSession
+    , runSessionTls
+    , newSession
     , delSession
     , navigateTo
     , getCurrentUrl
@@ -15,6 +17,7 @@ module Commands.Commands
     , switchToWindow
     , getWindowHandles
     , newWindow
+    , switchToFrame
     , switchToParentFrame
     , getWindowSize
     , setWindowSize
@@ -39,6 +42,7 @@ module Commands.Commands
     , elementClick
     , elementClear
     , elementSendKeys
+    , executeScript
 
     , elementScreenshot
     , elementSaveScreenshot
@@ -52,6 +56,8 @@ where
 
 import qualified Network.HTTP.Types.URI as HTTP
 import Network.HTTP.Types.Method
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
 
 import Data.HashMap.Lazy (HashMap)
 import qualified Data.HashMap.Lazy as HL 
@@ -84,6 +90,16 @@ import Data.Aeson.Lens
 --                      Navigate Commands                     --
 --                                                            --
 ----------------------------------------------------------------
+
+runSession :: SessState a -> IO a
+runSession f = do
+    manager <- newManager defaultManagerSettings
+    evalStateT (getSessState f) (Session {sessHost = "127.0.0.1", sessPort = 4444, sessId = SessionId "", sessManager = manager})
+
+runSessionTls :: SessState a -> IO a
+runSessionTls f = do
+    manager <- newTlsManager 
+    evalStateT (getSessState f) (Session {sessHost = "127.0.0.1", sessPort = 4444, sessId = SessionId "", sessManager = manager})
 
 newSession :: SessState Session
 newSession = do
@@ -148,8 +164,9 @@ newWindow t = do
             Just d -> return d
             Nothing -> throwIO $ BadJSON "Cannot parse result of newWindow command into (handle, type) pair."
 -- TODO :
--- switchToFrame :: WebFrame -> SessState ()
--- switchToFrame = do
+switchToFrame :: Frame -> SessState ()
+switchToFrame f = 
+    ignore $ doSessCommand "/frame" methodPost $ object ["id" .= f]
 
 switchToParentFrame :: SessState ()
 switchToParentFrame = ignore $ doSessCommand "/frame/parent" methodPost Null
@@ -216,7 +233,11 @@ findChildrenElement ls eid = do
         Nothing -> throwIO $ BadJSON "Cannot find children of the element."
 
 getActiveElement :: SessState Text
-getActiveElement = doSessCommand "/element/active" methodGet Null
+getActiveElement = do
+    res <- retValue $ doSessCommand "/element/active" methodPost Null
+    case preview _Object res of
+        Just e -> parseAesonResult . fromJSON .head . HL.elems $ e
+        Nothing -> throwIO $ BadJSON "There is no active element."
 
 isElementSelected :: Text -> SessState Bool
 isElementSelected eid = 
@@ -269,6 +290,10 @@ elementClear eid =
 elementSendKeys :: Text -> Text -> SessState ()
 elementSendKeys eid v =
     ignore $ doSessElCommand eid "/value" methodPost $ object ["value" .= [v]]
+
+executeScript :: (FromJSON a) => Text -> [JSArg] -> SessState a
+executeScript s args = 
+    doSessCommand "/execute" methodPost $ object ["script" .= s, "args" .= args]
 
 
 elementScreenshot :: Text -> SessState Text

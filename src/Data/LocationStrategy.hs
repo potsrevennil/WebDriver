@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, GADTs #-}
 module Data.LocationStrategy where
 
 import Data.Text
@@ -27,3 +27,19 @@ instance ToJSON LocationStrategy where
         where
             setSelector :: Text -> Text -> Value
             setSelector str v = object ["using" .= str, "value" .= v]
+
+data Frame =  Index Integer
+            | Element Text
+            | Default
+            deriving (Eq, Show)
+
+instance ToJSON Frame where
+    toJSON s 
+        | Index i <- s = toJSON i
+        | Element t <- s = object ["ELEMENT" .= t]
+        | Default <- s = Null   
+
+data JSArg = forall a. ToJSON a => JSArg a
+
+instance ToJSON JSArg where
+  toJSON (JSArg a) = toJSON a

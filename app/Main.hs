@@ -1,27 +1,30 @@
-{-# LANGUAGE OverloadedStrings, PartialTypeSignatures, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, PartialTypeSignatures, FlexibleContexts, RecordWildCards #-}
 
-import Network.HTTP.Client
-import Control.Monad.Trans.State.Lazy
 import Commands.Commands
 import Sessions
 import Data.LocationStrategy
+import Data.Text.Lazy (Text)
+import qualified Data.Text.Lazy as T
+
+import qualified Data.ByteString.Lazy as B
+import qualified Data.Text.Lazy.Encoding as T
+import Control.Monad.Base
+import Data.Aeson
+import Test
+import Commands.Internal
+import Network.HTTP.Types.Method
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
 
 main :: IO ()
-main = do 
-    manager <- newManager defaultManagerSettings 
-    res <- evalStateT (getSessState (
-                newSession 
-                >> navigateTo "http://google.com"
-    --             >> findElement (XPath "//div[@id='searchform']/form[1]/div[2]/div[1]/div[1]/div[1]/div[2]/input[1]")
-    --             >>= (\e -> 
-    --                 elementClick e
-    --                 >> elementSendKeys e "hello"
-    --                 >> elementClear e
-    --             )
-                
-            ))
-        (Session {sessHost = "127.0.0.1", sessPort = 4444, sessId = SessionId "", sessManager = manager})
+main = do
+    res <- runSessionTls (do
+                    newSession 
+                    navigateTo "https://google.com"
+            )
     print res
+    
+
 
 
 

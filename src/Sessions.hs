@@ -8,6 +8,7 @@ import Network.HTTP.Client (Manager)
 import Control.Monad.Trans.State.Lazy
 import Control.Monad.IO.Class
 import Control.Monad.Base
+import Control.Monad.Catch
 
 
 newtype SessionId = SessionId {getSessionId :: Text}
@@ -21,5 +22,5 @@ data Session = Session {
     } 
 
 newtype SessState a = SessState {getSessState :: StateT Session IO a}
-    deriving (Applicative, Functor, Monad, MonadIO, MonadBase IO)
+    deriving (Applicative, Functor, Monad, MonadIO, MonadBase IO, MonadThrow)
 

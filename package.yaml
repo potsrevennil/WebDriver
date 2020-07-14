@@ -38,6 +38,8 @@ dependencies:
 - lens
 - lens-aeson
 - base64-bytestring
+- exceptions
+- http-client-tls
 library:
   source-dirs: src
 

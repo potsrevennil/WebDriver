@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: eabfd8e236b4eeaf33b1a504ef626c2600466e0bbcc8916a8f2d587843d2cd25
+-- hash: 2860b09ff1cf43d72e04e949b79a740abd0af89de42b4ebe465907bef41e7dd2
 
 name:           webdriver
 version:        0.1.0.0
@@ -45,7 +45,9 @@ library
     , base64-bytestring
     , bytestring
     , data-default
+    , exceptions
     , http-client
+    , http-client-tls
     , http-types
     , lens
     , lens-aeson
@@ -73,7 +75,9 @@ executable webdriver-exe
     , base64-bytestring
     , bytestring
     , data-default
+    , exceptions
     , http-client
+    , http-client-tls
     , http-types
     , lens
     , lens-aeson
@@ -103,7 +107,9 @@ test-suite webdriver-test
     , base64-bytestring
     , bytestring
     , data-default
+    , exceptions
     , http-client
+    , http-client-tls
     , http-types
     , lens
     , lens-aeson
